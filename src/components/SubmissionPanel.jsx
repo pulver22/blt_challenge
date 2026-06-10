@@ -1,42 +1,51 @@
 import { useMemo, useState } from 'react';
 import { CheckCircle2, FileText, LoaderCircle, UploadCloud } from 'lucide-react';
 import { challenge } from '../data/challengeData';
-import { createDemoSubmissionResult, evaluationSteps, validateTrajectoryUpload } from '../lib/submission';
+import { submitTrajectory } from '../lib/api';
+import { evaluationSteps, validateTrajectoryUpload } from '../lib/submission';
 
 const initialForm = {
+  inviteCode: '',
   team: '',
+  contactEmail: '',
   method: '',
   category: 'lidar',
-  format: 'tum',
   trainingRuns: '',
   link: '',
   notes: '',
-  fileName: '',
 };
 
 export default function SubmissionPanel() {
   const [form, setForm] = useState(initialForm);
-  const [submitted, setSubmitted] = useState(false);
+  const [file, setFile] = useState(null);
+  const [submission, setSubmission] = useState(null);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const validation = useMemo(
-    () => validateTrajectoryUpload({ name: form.fileName, format: form.format }),
-    [form.fileName, form.format],
+    () => validateTrajectoryUpload({ name: file?.name ?? '' }),
+    [file],
   );
 
-  const demoResult = useMemo(() => {
-    if (!submitted) return null;
-    return createDemoSubmissionResult(form);
-  }, [form, submitted]);
-
   function updateField(field, value) {
-    setSubmitted(false);
+    setSubmission(null);
+    setError('');
     setForm((current) => ({ ...current, [field]: value }));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    if (validation.valid && form.team && form.method) {
-      setSubmitted(true);
+    if (!file || !validation.valid || !form.team || !form.method || !form.inviteCode || !form.contactEmail) {
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      setSubmission(await submitTrajectory(form, file));
+    } catch (submissionError) {
+      setError(submissionError.message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -56,6 +65,28 @@ export default function SubmissionPanel() {
           <span>{challenge.officialRun.season}</span>
           <strong>{challenge.officialRun.name}</strong>
           <p>{challenge.officialRun.description}</p>
+        </div>
+
+        <div className="form-row two">
+          <label>
+            Invite code
+            <input
+              value={form.inviteCode}
+              onChange={(event) => updateField('inviteCode', event.target.value)}
+              placeholder="BLT-ABCD-EF12-3456"
+              required
+            />
+          </label>
+          <label>
+            Contact email
+            <input
+              type="email"
+              value={form.contactEmail}
+              onChange={(event) => updateField('contactEmail', event.target.value)}
+              placeholder="team@example.org"
+              required
+            />
+          </label>
         </div>
 
         <div className="form-row two">
@@ -89,9 +120,8 @@ export default function SubmissionPanel() {
           </label>
           <label>
             Trajectory format
-            <select value={form.format} onChange={(event) => updateField('format', event.target.value)}>
+            <select value="tum" disabled>
               <option value="tum">TUM trajectory text</option>
-              <option value="kitti">KITTI pose text</option>
             </select>
           </label>
         </div>
@@ -100,9 +130,13 @@ export default function SubmissionPanel() {
           <FileText size={18} />
           Trajectory text file
           <input
-            value={form.fileName}
-            onChange={(event) => updateField('fileName', event.target.value)}
-            placeholder="summer_run_odometry.txt"
+            type="file"
+            accept=".txt,text/plain"
+            onChange={(event) => {
+              setSubmission(null);
+              setError('');
+              setFile(event.target.files?.[0] ?? null);
+            }}
             required
           />
         </label>
@@ -137,29 +171,34 @@ export default function SubmissionPanel() {
 
         <button className="primary-action" type="submit">
           <UploadCloud size={18} />
-          Run demo evaluation
+          {submitting ? 'Uploading...' : 'Submit for live evaluation'}
         </button>
+        {error && <p className="validation">{error}</p>}
+        {submission && (
+          <div className="success-box">
+            <strong>Submission queued</strong>
+            <span>Attempt #{submission.attempt_number}. Keep this private status link.</span>
+            <a href={submission.status_url}>View submission status</a>
+          </div>
+        )}
       </form>
 
       <aside className="evaluation-card">
-        <h3>Mocked evo pipeline</h3>
+        <h3>Live evo pipeline</h3>
         <ol>
           {evaluationSteps.map((step, index) => (
-            <li key={step.id} className={submitted || index < 2 ? 'complete' : ''}>
-              {submitted || index < 2 ? <CheckCircle2 size={18} /> : <LoaderCircle size={18} />}
+            <li key={step.id} className={submission || index < 2 ? 'complete' : ''}>
+              {submission || index < 2 ? <CheckCircle2 size={18} /> : <LoaderCircle size={18} />}
               <span>{step.label}</span>
             </li>
           ))}
         </ol>
-        {demoResult && (
+        {submission && (
           <div className="demo-result">
-            <p className="eyebrow">Prototype output</p>
-            <strong>{demoResult.compositeScore.toFixed(1)} composite score</strong>
-            <span>
-              ATE {demoResult.ateRmse.toFixed(2)} m · RPE {demoResult.rpe.toFixed(3)} · Coverage{' '}
-              {demoResult.completeness.toFixed(1)}%
-            </span>
-            <p>This is demo data. No hidden-ground-truth scoring has been run.</p>
+            <p className="eyebrow">Queued on Pi</p>
+            <strong>Private status page created</strong>
+            <span>{submission.remaining_attempts} attempts remain in this category.</span>
+            <p>Results stay private until admin review publishes the leaderboard row.</p>
           </div>
         )}
       </aside>

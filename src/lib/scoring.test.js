@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCombinedLeaderboard,
   getLeaderboardByCategory,
-  sortByCompositeScore,
+  sortByAteRmse,
 } from './scoring';
 
 const submissions = [
@@ -11,27 +11,27 @@ const submissions = [
     category: 'vision',
     team: 'CropLoop',
     method: 'RGB-D Vineyard Odometry',
-    compositeScore: 72.4,
+    ateRmse: 0.46,
   },
   {
     id: 'lidar-best',
     category: 'lidar',
     team: 'RowMapper',
     method: 'ICP Rows',
-    compositeScore: 91.2,
+    ateRmse: 0.18,
   },
   {
     id: 'lidar-second',
     category: 'lidar',
     team: 'CanopyLab',
     method: 'NDT Summer',
-    compositeScore: 85.7,
+    ateRmse: 0.27,
   },
 ];
 
 describe('leaderboard scoring helpers', () => {
-  it('sorts submissions by composite score in descending order', () => {
-    expect(sortByCompositeScore(submissions).map((entry) => entry.id)).toEqual([
+  it('sorts submissions by ATE RMSE in ascending order', () => {
+    expect(sortByAteRmse(submissions).map((entry) => entry.id)).toEqual([
       'lidar-best',
       'lidar-second',
       'vision-baseline',

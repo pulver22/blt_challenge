@@ -1,0 +1,8 @@
+node_modules
+dist
+.venv
+var
+.git
+.DS_Store
+.env
+groundtruth

@@ -3,8 +3,12 @@ const categoryLabels = {
   vision: 'Vision SLAM',
 };
 
-export function sortByCompositeScore(submissions) {
-  return [...submissions].sort((a, b) => b.compositeScore - a.compositeScore);
+function getAteRmse(entry) {
+  return entry.ateRmse ?? entry.ate_rmse ?? Number.POSITIVE_INFINITY;
+}
+
+export function sortByAteRmse(submissions) {
+  return [...submissions].sort((a, b) => getAteRmse(a) - getAteRmse(b));
 }
 
 export function withRanks(submissions) {
@@ -16,9 +20,9 @@ export function withRanks(submissions) {
 }
 
 export function getLeaderboardByCategory(submissions, category) {
-  return withRanks(sortByCompositeScore(submissions.filter((entry) => entry.category === category)));
+  return withRanks(sortByAteRmse(submissions.filter((entry) => entry.category === category)));
 }
 
 export function buildCombinedLeaderboard(submissions) {
-  return withRanks(sortByCompositeScore(submissions));
+  return withRanks(sortByAteRmse(submissions));
 }

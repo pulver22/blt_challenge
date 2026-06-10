@@ -1,32 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import {
-  evaluationSteps,
-  validateTrajectoryUpload,
-  createDemoSubmissionResult,
-} from './submission';
+import { evaluationSteps, validateTrajectoryUpload } from './submission';
 
 describe('submission helpers', () => {
-  it('accepts TUM and KITTI text trajectory uploads', () => {
+  it('accepts TUM text trajectory uploads', () => {
     expect(validateTrajectoryUpload({ name: 'summer_run_tum.txt', format: 'tum' })).toEqual({
       valid: true,
-      message: 'TUM text trajectory ready for evo.',
-    });
-
-    expect(validateTrajectoryUpload({ name: 'summer_run_kitti.txt', format: 'kitti' })).toEqual({
-      valid: true,
-      message: 'KITTI pose text ready for evo.',
+      message: 'TUM text trajectory ready for live evo evaluation.',
     });
   });
 
-  it('rejects ROS bags and unsupported formats', () => {
-    expect(validateTrajectoryUpload({ name: 'odometry.bag', format: 'rosbag' })).toEqual({
+  it('rejects ROS bags, KITTI, and unsupported formats', () => {
+    expect(validateTrajectoryUpload({ name: 'odometry.bag' })).toEqual({
       valid: false,
-      message: 'Upload a .txt trajectory in TUM or KITTI format.',
+      message: 'Upload a TUM .txt trajectory file.',
     });
 
-    expect(validateTrajectoryUpload({ name: 'poses.csv', format: 'csv' })).toEqual({
+    expect(validateTrajectoryUpload({ name: 'poses.kitti' })).toEqual({
       valid: false,
-      message: 'Upload a .txt trajectory in TUM or KITTI format.',
+      message: 'Upload a TUM .txt trajectory file.',
     });
   });
 
@@ -35,26 +26,8 @@ describe('submission helpers', () => {
       'Upload received',
       'Validating text trajectory',
       'Running evo',
-      'Computing composite score',
-      'Score ready',
+      'Awaiting admin review',
+      'Published to leaderboard',
     ]);
-  });
-
-  it('creates a demo result without pretending real hidden scoring happened', () => {
-    expect(
-      createDemoSubmissionResult({
-        team: 'Lincoln Robotics',
-        method: 'SummerGraph SLAM',
-        category: 'lidar',
-        format: 'tum',
-      }),
-    ).toMatchObject({
-      team: 'Lincoln Robotics',
-      method: 'SummerGraph SLAM',
-      category: 'lidar',
-      format: 'tum',
-      status: 'Demo score',
-      demo: true,
-    });
   });
 });
