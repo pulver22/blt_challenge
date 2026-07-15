@@ -313,6 +313,26 @@ footer {
   display: none;
 }
 
+.leaderboard-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 1rem;
+  border: 1px solid rgba(23, 52, 46, 0.12);
+  border-radius: 0.55rem;
+  background: #fffdf7;
+}
+
+.leaderboard-card span {
+  color: #687870;
+}
+
+.leaderboard-card-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 table {
   width: 100%;
   min-width: 840px;
@@ -723,5 +743,9 @@ footer {
   .leaderboard-cards {
     display: grid;
     gap: 0.75rem;
+  }
+
+  .leaderboard .table-wrap {
+    display: none;
   }
 }
