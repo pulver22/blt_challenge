@@ -32,7 +32,32 @@ describe('Leaderboard', () => {
     await user.click(screen.getByRole('tab', { name: 'Vision SLAM' }));
 
     expect(screen.getByRole('tab', { name: 'Vision SLAM' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tabpanel', { name: /vision slam leaderboard/i })).toHaveTextContent('CropLoop');
+    expect(screen.getByRole('tabpanel', { name: 'Vision SLAM' })).toHaveTextContent('CropLoop');
+  });
+
+  it('gives compact and full instances distinct, valid tab-panel relationships', async () => {
+    render(
+      <>
+        <Leaderboard compact />
+        <Leaderboard />
+      </>,
+    );
+
+    await screen.findAllByText('RowMapper');
+
+    const tabs = screen.getAllByRole('tab');
+    const panels = screen.getAllByRole('tabpanel', { hidden: true });
+    const tabIds = tabs.map((tab) => tab.id);
+    const panelIds = panels.map((panel) => panel.id);
+
+    expect(new Set(tabIds).size).toBe(tabIds.length);
+    expect(new Set(panelIds).size).toBe(panelIds.length);
+
+    tabs.forEach((tab) => {
+      const panel = document.getElementById(tab.getAttribute('aria-controls'));
+      expect(panel).toBeInTheDocument();
+      expect(panel).toHaveAttribute('aria-labelledby', tab.id);
+    });
   });
 
   it('offers a full-dashboard action from the compact preview', async () => {
@@ -47,6 +72,22 @@ describe('Leaderboard', () => {
     render(<Leaderboard />);
 
     expect(await screen.findByText(/leaderboard is unavailable/i)).toHaveAttribute('role', 'status');
+  });
+
+  it('announces loading while leaderboard results are pending', () => {
+    fetchLeaderboards.mockReturnValue(new Promise(() => {}));
+    render(<Leaderboard />);
+
+    expect(screen.getByText(/loading live leaderboard/i)).toHaveAttribute('role', 'status');
+  });
+
+  it('shows an empty state for a category without published results', async () => {
+    render(<Leaderboard />);
+
+    await screen.findAllByText('RowMapper');
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Combined' }));
+
+    expect(screen.getByText(/no published results yet/i)).toBeInTheDocument();
   });
 
   it('renders mobile cards with the key fields from the visible rows', async () => {

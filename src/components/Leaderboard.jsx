@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { categories } from '../data/challengeData';
 import { fetchLeaderboards } from '../lib/api';
 import { categoryLabel, formatRmse } from '../lib/format';
@@ -6,6 +6,7 @@ import { categoryLabel, formatRmse } from '../lib/format';
 const tabs = categories;
 
 export default function Leaderboard({ compact = false }) {
+  const instanceId = useId();
   const [active, setActive] = useState('lidar');
   const [leaderboards, setLeaderboards] = useState({ lidar: [], vision: [], combined: [] });
   const [status, setStatus] = useState('loading');
@@ -27,14 +28,14 @@ export default function Leaderboard({ compact = false }) {
     };
   }, []);
 
-  const rows = useMemo(() => leaderboards[active] ?? [], [active, leaderboards]);
-
-  const visibleRows = compact ? rows.slice(0, 4) : rows;
-  const activeTab = tabs.find((tab) => tab.id === active);
-  const activePanelId = `leaderboard-panel-${active}`;
+  const tabId = (category) => `${instanceId}-leaderboard-tab-${category}`;
+  const panelId = (category) => `${instanceId}-leaderboard-panel-${category}`;
 
   return (
-    <section className={compact ? 'leaderboard compact-panel' : 'leaderboard page-panel'} id="leaderboards">
+    <section
+      className={compact ? 'leaderboard compact-panel' : 'leaderboard page-panel'}
+      id={compact ? 'leaderboard-preview' : 'leaderboards'}
+    >
       <div className="section-heading">
         <p className="eyebrow">Public dashboard</p>
         <h2>{compact ? 'Current benchmark snapshot' : 'Leaderboards'}</h2>
@@ -52,10 +53,10 @@ export default function Leaderboard({ compact = false }) {
             className={active === tab.id ? 'tab active' : 'tab'}
             type="button"
             key={tab.id}
-            id={`leaderboard-tab-${tab.id}`}
+            id={tabId(tab.id)}
             role="tab"
             aria-selected={active === tab.id}
-            aria-controls={`leaderboard-panel-${tab.id}`}
+            aria-controls={panelId(tab.id)}
             onClick={() => setActive(tab.id)}
           >
             {tab.label}
@@ -63,63 +64,73 @@ export default function Leaderboard({ compact = false }) {
         ))}
       </div>
 
-      <div
-        id={activePanelId}
-        role="tabpanel"
-        aria-label={`${activeTab.label} leaderboard`}
-      >
-        {status === 'loading' && <p className="panel-note" role="status">Loading live leaderboard...</p>}
-        {status === 'error' && (
-          <p className="panel-note" role="status">Leaderboard is unavailable. Please try again later.</p>
-        )}
-        {status === 'ready' && visibleRows.length === 0 && <p className="panel-note">No published results yet.</p>}
+      {tabs.map((tab) => {
+        const rows = leaderboards[tab.id] ?? [];
+        const visibleRows = compact ? rows.slice(0, 4) : rows;
+        const isActive = active === tab.id;
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Team / method</th>
-                <th>Category</th>
-                <th>ATE RMSE</th>
-                <th>RPE</th>
-                <th>Alignment</th>
-                <th>Attempt</th>
-              </tr>
-            </thead>
-            <tbody>
+        return (
+          <div
+            id={panelId(tab.id)}
+            key={tab.id}
+            role="tabpanel"
+            aria-labelledby={tabId(tab.id)}
+            hidden={!isActive}
+          >
+            {isActive && status === 'loading' && <p className="panel-note" role="status">Loading live leaderboard...</p>}
+            {isActive && status === 'error' && (
+              <p className="panel-note" role="status">Leaderboard is unavailable. Please try again later.</p>
+            )}
+            {isActive && status === 'ready' && visibleRows.length === 0 && <p className="panel-note">No published results yet.</p>}
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Team / method</th>
+                    <th>Category</th>
+                    <th>ATE RMSE</th>
+                    <th>RPE</th>
+                    <th>Alignment</th>
+                    <th>Attempt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((entry) => (
+                    <tr key={entry.submission_id}>
+                      <td>#{entry.rank}</td>
+                      <td>
+                        <strong>{entry.team}</strong>
+                        <span>{entry.method}</span>
+                      </td>
+                      <td>{categoryLabel(entry.category)}</td>
+                      <td>{formatRmse(entry.ate_rmse)}</td>
+                      <td>{formatRmse(entry.rpe_rmse)}</td>
+                      <td>{entry.alignment?.toUpperCase()}</td>
+                      <td>#{entry.attempt_number}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="leaderboard-cards">
               {visibleRows.map((entry) => (
-                <tr key={entry.submission_id}>
-                  <td>#{entry.rank}</td>
-                  <td>
-                    <strong>{entry.team}</strong>
-                    <span>{entry.method}</span>
-                  </td>
-                  <td>{categoryLabel(entry.category)}</td>
-                  <td>{formatRmse(entry.ate_rmse)}</td>
-                  <td>{formatRmse(entry.rpe_rmse)}</td>
-                  <td>{entry.alignment?.toUpperCase()}</td>
-                  <td>#{entry.attempt_number}</td>
-                </tr>
+                <article className="leaderboard-card" data-testid={`leaderboard-card-${entry.submission_id}`} key={entry.submission_id}>
+                  <div className="leaderboard-card-heading">
+                    <strong>#{entry.rank}</strong>
+                    <span>{categoryLabel(entry.category)}</span>
+                  </div>
+                  <strong>{entry.team}</strong>
+                  <span>{entry.method}</span>
+                  <span>ATE RMSE: {formatRmse(entry.ate_rmse)}</span>
+                </article>
               ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="leaderboard-cards">
-          {visibleRows.map((entry) => (
-            <article className="leaderboard-card" data-testid={`leaderboard-card-${entry.submission_id}`} key={entry.submission_id}>
-              <div className="leaderboard-card-heading">
-                <strong>#{entry.rank}</strong>
-                <span>{categoryLabel(entry.category)}</span>
-              </div>
-              <strong>{entry.team}</strong>
-              <span>{entry.method}</span>
-              <span>ATE RMSE: {formatRmse(entry.ate_rmse)}</span>
-            </article>
-          ))}
-        </div>
-      </div>
+            </div>
+          </div>
+        );
+      })}
 
       {compact && <a className="secondary-action compact-action" href="/#leaderboards">View full leaderboards</a>}
     </section>
