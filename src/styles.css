@@ -39,7 +39,8 @@ textarea {
   outline-offset: 3px;
 }
 
-button:disabled {
+button:disabled,
+select:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
