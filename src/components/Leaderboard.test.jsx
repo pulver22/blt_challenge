@@ -35,6 +35,50 @@ describe('Leaderboard', () => {
     expect(screen.getByRole('tabpanel', { name: 'Vision SLAM' })).toHaveTextContent('CropLoop');
   });
 
+  it('activates and focuses the next tab with ArrowRight, wrapping at the end', async () => {
+    const user = userEvent.setup();
+    render(<Leaderboard />);
+
+    const lidarTab = screen.getByRole('tab', { name: 'LiDAR SLAM' });
+    const visionTab = screen.getByRole('tab', { name: 'Vision SLAM' });
+    const combinedTab = screen.getByRole('tab', { name: 'Combined' });
+
+    lidarTab.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(visionTab).toHaveFocus();
+    expect(visionTab).toHaveAttribute('aria-selected', 'true');
+    expect(visionTab).toHaveAttribute('tabindex', '0');
+    expect(lidarTab).toHaveAttribute('tabindex', '-1');
+
+    await user.keyboard('{End}{ArrowRight}');
+
+    expect(lidarTab).toHaveFocus();
+    expect(lidarTab).toHaveAttribute('aria-selected', 'true');
+    expect(combinedTab).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('activates and focuses the first or previous tab with Home and ArrowLeft', async () => {
+    const user = userEvent.setup();
+    render(<Leaderboard />);
+
+    const lidarTab = screen.getByRole('tab', { name: 'LiDAR SLAM' });
+    const combinedTab = screen.getByRole('tab', { name: 'Combined' });
+
+    lidarTab.focus();
+    await user.keyboard('{End}');
+    await user.keyboard('{Home}');
+
+    expect(lidarTab).toHaveFocus();
+    expect(lidarTab).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{ArrowLeft}');
+
+    expect(combinedTab).toHaveFocus();
+    expect(combinedTab).toHaveAttribute('aria-selected', 'true');
+    expect(combinedTab).toHaveAttribute('tabindex', '0');
+  });
+
   it('gives compact and full instances distinct, valid tab-panel relationships', async () => {
     render(
       <>

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { categories } from '../data/challengeData';
 import { fetchLeaderboards } from '../lib/api';
 import { categoryLabel, formatRmse } from '../lib/format';
@@ -7,6 +7,7 @@ const tabs = categories;
 
 export default function Leaderboard({ compact = false }) {
   const instanceId = useId();
+  const tabRefs = useRef({});
   const [active, setActive] = useState('lidar');
   const [leaderboards, setLeaderboards] = useState({ lidar: [], vision: [], combined: [] });
   const [status, setStatus] = useState('loading');
@@ -30,6 +31,33 @@ export default function Leaderboard({ compact = false }) {
 
   const tabId = (category) => `${instanceId}-leaderboard-tab-${category}`;
   const panelId = (category) => `${instanceId}-leaderboard-panel-${category}`;
+
+  const handleTabKeyDown = (event, currentTabId) => {
+    const currentIndex = tabs.findIndex((tab) => tab.id === currentTabId);
+    let nextIndex;
+
+    switch (event.key) {
+      case 'ArrowLeft':
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+        break;
+      case 'ArrowRight':
+        nextIndex = (currentIndex + 1) % tabs.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    setActive(nextTab.id);
+    tabRefs.current[nextTab.id]?.focus();
+  };
 
   return (
     <section
@@ -58,6 +86,11 @@ export default function Leaderboard({ compact = false }) {
             aria-selected={active === tab.id}
             aria-controls={panelId(tab.id)}
             onClick={() => setActive(tab.id)}
+            onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+            ref={(element) => {
+              tabRefs.current[tab.id] = element;
+            }}
+            tabIndex={active === tab.id ? 0 : -1}
           >
             {tab.label}
           </button>
