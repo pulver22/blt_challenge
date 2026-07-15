@@ -17,12 +17,14 @@ export default function App() {
   const route = getRoute();
 
   return (
-    <main>
+    <>
       <SiteNav />
-      {route.type === 'admin' && <AdminPanel />}
-      {route.type === 'submission' && <SubmissionStatus id={route.id} token={route.token} />}
-      {route.type === 'home' && <HomePage />}
-    </main>
+      <main>
+        {route.type === 'admin' && <AdminPanel />}
+        {route.type === 'submission' && <SubmissionStatus id={route.id} token={route.token} />}
+        {route.type === 'home' && <HomePage />}
+      </main>
+    </>
   );
 }
 
@@ -43,7 +45,7 @@ function HomePage() {
               Get dataset access
               <ArrowRight size={18} />
             </a>
-            <a className="secondary-action" href="#submit">
+            <a className="secondary-action" href="/#submit">
               Submit odometry
             </a>
           </div>
@@ -141,7 +143,7 @@ function HomePage() {
 function SiteNav() {
   return (
     <nav className="site-nav" aria-label="Main navigation">
-      <a className="brand" href="/">
+      <a className="brand" href="/#home">
         <span>BLT</span>
         SLAM Challenge
       </a>
