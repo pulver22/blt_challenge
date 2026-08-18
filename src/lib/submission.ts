@@ -1,3 +1,5 @@
+import { TrajectoryValidation } from '../types';
+
 export const evaluationSteps = [
   { id: 'received', label: 'Upload received' },
   { id: 'validating', label: 'Validating text trajectory' },
@@ -6,13 +8,14 @@ export const evaluationSteps = [
   { id: 'published', label: 'Published to leaderboard' },
 ];
 
-export function validateTrajectoryUpload({ name }) {
-  const hasTextExtension = typeof name === 'string' && name.toLowerCase().endsWith('.txt');
+export function validateTrajectoryUpload({ name }: { name?: string }): TrajectoryValidation {
+  const normalizedName = typeof name === 'string' ? name.toLowerCase() : '';
+  const hasTumTextExtension = ['.txt', '.tum', '.tum.tum'].some((suffix) => normalizedName.endsWith(suffix));
 
-  if (!hasTextExtension) {
+  if (!hasTumTextExtension) {
     return {
       valid: false,
-      message: 'Upload a TUM .txt trajectory file.',
+      message: 'Upload a TUM text trajectory file.',
     };
   }
 

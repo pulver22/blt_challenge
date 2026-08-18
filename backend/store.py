@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -20,6 +20,18 @@ def utc_now() -> str:
 
 
 class AttemptLimitExceeded(ValueError):
+    pass
+
+
+class RateLimitExceeded(ValueError):
+    pass
+
+
+class BlacklistedError(ValueError):
+    pass
+
+
+class SystemFrozenError(ValueError):
     pass
 
 
@@ -44,7 +56,7 @@ class Store:
                 );
                 CREATE TABLE IF NOT EXISTS submissions (
                     id TEXT PRIMARY KEY,
-                    invite_code_id TEXT NOT NULL REFERENCES invite_codes(id),
+                    invite_code_id TEXT,
                     token_hash TEXT NOT NULL,
                     team TEXT NOT NULL,
                     contact_email TEXT NOT NULL,
@@ -60,6 +72,7 @@ class Store:
                     validation_rows INTEGER,
                     validation_first_timestamp REAL,
                     validation_last_timestamp REAL,
+                    is_baseline INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -81,8 +94,29 @@ class Store:
                     metadata_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS ip_submission_logs (
+                    id TEXT PRIMARY KEY,
+                    ip_address TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS blacklist_entries (
+                    id TEXT PRIMARY KEY,
+                    entry_type TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ip_logs ON ip_submission_logs(ip_address, created_at);
                 """
             )
+            # Ensure is_baseline column exists if database was created previously
+            cols = [row[1] for row in db.execute("PRAGMA table_info(submissions)").fetchall()]
+            if "is_baseline" not in cols:
+                db.execute("ALTER TABLE submissions ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0")
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -90,6 +124,88 @@ class Store:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    # --- SYSTEM SETTINGS ---
+    def get_system_setting(self, key: str, default: str = "") -> str:
+        with self.connect() as db:
+            row = db.execute("SELECT value FROM system_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_system_setting(self, key: str, value: str) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)",
+                (key, str(value)),
+            )
+            self._audit(db, "admin", "set_system_setting", "setting", key, {"value": value})
+
+    # --- BLACKLIST MANAGEMENT ---
+    def is_blacklisted(self, email: str, ip_address: str) -> tuple[bool, str]:
+        clean_email = email.strip().lower()
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM blacklist_entries").fetchall()
+        for row in rows:
+            entry = dict(row)
+            val = entry["value"].strip().lower()
+            if entry["entry_type"] == "email" and clean_email == val:
+                return True, f"Email address '{email}' is blacklisted: {entry['reason']}"
+            if entry["entry_type"] == "ip" and ip_address == entry["value"].strip():
+                return True, f"IP address '{ip_address}' is blacklisted: {entry['reason']}"
+        return False, ""
+
+    def add_blacklist_entry(self, entry_type: str, value: str, reason: str = "") -> dict[str, Any]:
+        if entry_type not in {"email", "ip"}:
+            raise ValueError("Entry type must be email or ip.")
+        entry = {
+            "id": uuid4().hex,
+            "entry_type": entry_type,
+            "value": value.strip(),
+            "reason": reason.strip(),
+            "created_at": utc_now(),
+        }
+        with self.connect() as db:
+            db.execute(
+                """
+                INSERT INTO blacklist_entries (id, entry_type, value, reason, created_at)
+                VALUES (:id, :entry_type, :value, :reason, :created_at)
+                """,
+                entry,
+            )
+            self._audit(db, "admin", "add_blacklist", entry_type, entry["id"], {"value": value})
+        return entry
+
+    def remove_blacklist_entry(self, entry_id: str) -> None:
+        with self.connect() as db:
+            db.execute("DELETE FROM blacklist_entries WHERE id = ?", (entry_id,))
+            self._audit(db, "admin", "remove_blacklist", "blacklist_entry", entry_id, {})
+
+    def list_blacklist_entries(self) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM blacklist_entries ORDER BY created_at DESC").fetchall()
+        return [dict(row) for row in rows]
+
+    # --- IP & RATE LIMITING ---
+    def log_ip_request(self, ip_address: str) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO ip_submission_logs (id, ip_address, created_at) VALUES (?, ?, ?)",
+                (uuid4().hex, ip_address, utc_now()),
+            )
+
+    def check_ip_rate_limit(self, ip_address: str, limit_per_hour: int = 5, whitelist: tuple[str, ...] = ()) -> None:
+        if limit_per_hour <= 0 or ip_address in whitelist:
+            return
+        one_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="seconds")
+        with self.connect() as db:
+            count = db.execute(
+                "SELECT COUNT(*) FROM ip_submission_logs WHERE ip_address = ? AND created_at >= ?",
+                (ip_address, one_hour_ago),
+            ).fetchone()[0]
+        if count >= limit_per_hour:
+            raise RateLimitExceeded(
+                f"IP rate limit exceeded ({count}/{limit_per_hour} submissions in the last hour). Please try again later."
+            )
+
+    # --- INVITE CODES ---
     def create_invite(self, *, team_label: str, code: str | None = None) -> dict[str, Any]:
         raw_code = code or generate_invite_code()
         invite = {
@@ -136,21 +252,58 @@ class Store:
                 return invite
         return None
 
+    # --- QUOTA MANAGEMENT ---
+    def remaining_attempts_by_email(self, contact_email: str, category: str) -> int:
+        clean_email = contact_email.strip().lower()
+        with self.connect() as db:
+            used = db.execute(
+                """
+                SELECT COUNT(*) FROM submissions
+                WHERE LOWER(contact_email) = ? AND category = ? AND attempt_number IS NOT NULL
+                """,
+                (clean_email, category),
+            ).fetchone()[0]
+            # Check for custom admin limit override
+            override = db.execute(
+                "SELECT value FROM system_settings WHERE key = ?",
+                (f"quota_override_{clean_email}_{category}",),
+            ).fetchone()
+        limit = int(override["value"]) if override else self.attempt_limit
+        return max(0, limit - int(used))
+
+    def reset_quota_by_email(self, contact_email: str, category: str, additional_attempts: int = 5) -> int:
+        clean_email = contact_email.strip().lower()
+        with self.connect() as db:
+            used = db.execute(
+                """
+                SELECT COUNT(*) FROM submissions
+                WHERE LOWER(contact_email) = ? AND category = ? AND attempt_number IS NOT NULL
+                """,
+                (clean_email, category),
+            ).fetchone()[0]
+            new_limit = int(used) + additional_attempts
+            db.execute(
+                "INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)",
+                (f"quota_override_{clean_email}_{category}", str(new_limit)),
+            )
+            self._audit(db, "admin", "reset_quota", "email", clean_email, {"category": category, "new_limit": new_limit})
+        return new_limit
+
     def remaining_attempts(self, invite_code_id: str, category: str) -> int:
         with self.connect() as db:
             used = db.execute(
                 """
                 SELECT COUNT(*) FROM submissions
-                WHERE invite_code_id = ? AND category = ? AND attempt_number IS NOT NULL
+                WHERE (invite_code_id = ? OR LOWER(contact_email) = ?) AND category = ? AND attempt_number IS NOT NULL
                 """,
-                (invite_code_id, category),
+                (invite_code_id, invite_code_id.strip().lower(), category),
             ).fetchone()[0]
         return max(0, self.attempt_limit - int(used))
 
+    # --- SUBMISSIONS ---
     def create_submission(
         self,
         *,
-        invite_code_id: str,
         team: str,
         contact_email: str,
         method: str,
@@ -160,28 +313,37 @@ class Store:
         notes: str,
         upload_path: str,
         status: str,
+        invite_code_id: str | None = None,
         validation_summary: Any | None = None,
     ) -> dict[str, Any]:
         consumes_attempt = status != "failed_validation"
         now = utc_now()
         raw_token = generate_private_token()
+        clean_email = contact_email.strip().lower()
         with self.connect() as db:
             attempt_number = None
             if consumes_attempt:
                 used = db.execute(
                     """
                     SELECT COUNT(*) FROM submissions
-                    WHERE invite_code_id = ? AND category = ? AND attempt_number IS NOT NULL
+                    WHERE LOWER(contact_email) = ? AND category = ? AND attempt_number IS NOT NULL
                     """,
-                    (invite_code_id, category),
+                    (clean_email, category),
                 ).fetchone()[0]
-                if used >= self.attempt_limit:
-                    raise AttemptLimitExceeded("This invite has used all attempts for the selected category.")
+                override = db.execute(
+                    "SELECT value FROM system_settings WHERE key = ?",
+                    (f"quota_override_{clean_email}_{category}",),
+                ).fetchone()
+                limit = int(override["value"]) if override else self.attempt_limit
+                if used >= limit:
+                    raise AttemptLimitExceeded(
+                        f"Attempt limit reached ({used}/{limit}) for {category} category. Contact rpolvara@lincoln.ac.uk to request a quota reset."
+                    )
                 attempt_number = int(used) + 1
 
             submission = {
                 "id": uuid4().hex,
-                "invite_code_id": invite_code_id,
+                "invite_code_id": invite_code_id or "",
                 "token_hash": hash_secret(raw_token),
                 "team": team.strip(),
                 "contact_email": contact_email.strip(),
@@ -197,6 +359,7 @@ class Store:
                 "validation_rows": getattr(validation_summary, "rows", None),
                 "validation_first_timestamp": getattr(validation_summary, "first_timestamp", None),
                 "validation_last_timestamp": getattr(validation_summary, "last_timestamp", None),
+                "is_baseline": 0,
                 "created_at": now,
                 "updated_at": now,
             }
@@ -206,14 +369,14 @@ class Store:
                     id, invite_code_id, token_hash, team, contact_email, method, category,
                     training_runs, link, notes, upload_path, status, publication_state,
                     attempt_number, validation_rows, validation_first_timestamp,
-                    validation_last_timestamp, created_at, updated_at
+                    validation_last_timestamp, is_baseline, created_at, updated_at
                 )
                 VALUES (
                     :id, :invite_code_id, :token_hash, :team, :contact_email, :method,
                     :category, :training_runs, :link, :notes, :upload_path, :status,
                     :publication_state, :attempt_number, :validation_rows,
-                    :validation_first_timestamp, :validation_last_timestamp, :created_at,
-                    :updated_at
+                    :validation_first_timestamp, :validation_last_timestamp, :is_baseline,
+                    :created_at, :updated_at
                 )
                 """,
                 submission,
@@ -237,7 +400,8 @@ class Store:
         return dict(claimed) if claimed else None
 
     def update_submission_status(self, submission_id: str, status: str) -> None:
-        publication_state = "pending_review" if status == "pending_review" else None
+        publication_state = "published" if status == "pending_review" else None
+        final_status = "published" if status == "pending_review" else status
         with self.connect() as db:
             if publication_state:
                 db.execute(
@@ -245,13 +409,75 @@ class Store:
                     UPDATE submissions SET status = ?, publication_state = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (status, publication_state, utc_now(), submission_id),
+                    (final_status, publication_state, utc_now(), submission_id),
                 )
             else:
                 db.execute(
                     "UPDATE submissions SET status = ?, updated_at = ? WHERE id = ?",
                     (status, utc_now(), submission_id),
                 )
+
+    def retry_submission(self, submission_id: str) -> dict[str, Any] | None:
+        with self.connect() as db:
+            db.execute(
+                "UPDATE submissions SET status = 'queued', publication_state = 'private', updated_at = ? WHERE id = ?",
+                (utc_now(), submission_id),
+            )
+            self._audit(db, "admin", "retry_submission", "submission", submission_id, {})
+            row = self._submission_query(db, "s.id = ?", (submission_id,)).fetchone()
+        return self._shape_submission(row) if row else None
+
+    def delete_submission(self, submission_id: str, data_dir: Path) -> bool:
+        with self.connect() as db:
+            row = db.execute("SELECT upload_path FROM submissions WHERE id = ?", (submission_id,)).fetchone()
+            if not row:
+                return False
+            upload_path = Path(row["upload_path"])
+            db.execute("DELETE FROM evo_results WHERE submission_id = ?", (submission_id,))
+            db.execute("DELETE FROM submissions WHERE id = ?", (submission_id,))
+            self._audit(db, "admin", "delete_submission", "submission", submission_id, {})
+        
+        # Clean up files from data directory
+        if upload_path.exists():
+            upload_path.unlink(missing_ok=True)
+        res_dir = data_dir / "results" / submission_id
+        if res_dir.exists():
+            import shutil
+            shutil.rmtree(res_dir, ignore_errors=True)
+        fail_log = data_dir / "failures" / f"{submission_id}.log"
+        if fail_log.exists():
+            fail_log.unlink(missing_ok=True)
+        return True
+
+    def toggle_baseline_tag(self, submission_id: str) -> dict[str, Any] | None:
+        with self.connect() as db:
+            row = db.execute("SELECT is_baseline FROM submissions WHERE id = ?", (submission_id,)).fetchone()
+            if not row:
+                return None
+            next_val = 0 if row["is_baseline"] else 1
+            db.execute(
+                "UPDATE submissions SET is_baseline = ?, updated_at = ? WHERE id = ?",
+                (next_val, utc_now(), submission_id),
+            )
+            self._audit(db, "admin", "toggle_baseline", "submission", submission_id, {"is_baseline": next_val})
+            updated_row = self._submission_query(db, "s.id = ?", (submission_id,)).fetchone()
+        return self._shape_submission(updated_row) if updated_row else None
+
+    def get_submission_logs(self, submission_id: str, data_dir: Path) -> dict[str, Any]:
+        with self.connect() as db:
+            row = self._submission_query(db, "s.id = ?", (submission_id,)).fetchone()
+        if not row:
+            raise ValueError("Submission not found.")
+        
+        shaped = self._shape_submission(row)
+        fail_log = data_dir / "failures" / f"{submission_id}.log"
+        failure_text = fail_log.read_text(encoding="utf-8") if fail_log.exists() else ""
+        
+        return {
+            "submission": shaped,
+            "failure_log": failure_text,
+            "upload_path": shaped.get("upload_path"),
+        }
 
     def record_result(
         self,
@@ -321,6 +547,28 @@ class Store:
             submission.pop("token_hash", None)
         return submissions
 
+    def list_audit_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def export_leaderboard_csv(self) -> str:
+        leaderboards = self.public_leaderboards()
+        lines = ["rank,submission_id,team,method,category,ate_rmse,rpe_rmse,alignment,published_at,is_baseline"]
+        for cat in ["lidar", "vision"]:
+            for entry in leaderboards.get(cat, []):
+                sub_id = entry.get("submission_id", "")
+                team = f'"{entry.get("team", "")}"'
+                method = f'"{entry.get("method", "")}"'
+                category = entry.get("category", "")
+                ate = entry.get("ate_rmse", "")
+                rpe = entry.get("rpe_rmse", "")
+                alignment = entry.get("alignment", "")
+                published_at = entry.get("published_at", "")
+                is_baseline = entry.get("is_baseline", 0)
+                lines.append(f'{entry.get("rank")},{sub_id},{team},{method},{category},{ate},{rpe},{alignment},{published_at},{is_baseline}')
+        return "\n".join(lines)
+
     def public_leaderboards(self) -> dict[str, list[dict[str, Any]]]:
         with self.connect() as db:
             rows = self._submission_query(
@@ -362,6 +610,7 @@ class Store:
                 "s.updated_at DESC LIMIT 5",
             ).fetchall()
         usage = self._directory_usage(data_dir)
+        frozen = self.get_system_setting("submissions_frozen", "false") == "true"
         return {
             "app_version": app_version,
             "queue_length": int(queue_length),
@@ -369,6 +618,7 @@ class Store:
             "evo_available": self._command_available("evo_ape") and self._command_available("evo_rpe"),
             "data_dir": str(data_dir),
             "disk_bytes": usage,
+            "submissions_frozen": frozen,
             "latest_failures": [
                 {
                     "id": row["id"],
@@ -435,6 +685,7 @@ class Store:
             "link": submission["link"],
             "notes": submission["notes"],
             "attempt_number": submission["attempt_number"],
+            "is_baseline": submission.get("is_baseline", 0),
             "ate_rmse": result["ate_rmse"],
             "rpe_rmse": result["rpe_rmse"],
             "alignment": result["alignment"],

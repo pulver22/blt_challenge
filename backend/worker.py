@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 from backend.config import Settings
+from backend.email_service import send_admin_submission_notification
 from backend.evaluator import EvaluationError, run_evaluation
 from backend.store import Store
 
@@ -49,6 +50,7 @@ class EvaluationWorker:
                 raw_metrics=metrics,
             )
             self.store.update_submission_status(job["id"], "pending_review")
+            send_admin_submission_notification(self.settings, job, metrics)
         except EvaluationError as exc:
             failure_dir = self.settings.data_dir / "failures"
             failure_dir.mkdir(parents=True, exist_ok=True)

@@ -1,130 +1,119 @@
-# BLT SLAM Challenge Live Beta
+# BLT SLAM Benchmark Challenge Server
 
-Self-hosted private beta website for a BLT dataset SLAM challenge.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19.0-61DAFB.svg?style=flat&logo=react)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6.svg?style=flat&logo=typescript)](https://www.typescriptlang.org)
+[![evo](https://img.shields.io/badge/evo-Python_Benchmarking-FF6F00.svg?style=flat)](https://github.com/MichaelGrupp/evo)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-The site presents a participant-first challenge flow:
+An automated benchmark platform for agricultural robotics SLAM algorithms. Participants train pipelines on public **BLT (Lincoln Agricultural Robotics)** dataset runs, generate 3D trajectory odometry locally, and submit TUM text trajectories for server-side evaluation against unreleased ground truth.
 
-- train SLAM methods on public BLT runs;
-- run LiDAR or vision SLAM locally on a single official summer test run;
-- upload generated odometry as TUM `.txt` trajectory files;
-- evaluate submissions with `evo` against private ground truth on a Raspberry Pi;
-- review completed results in an admin screen before publishing LiDAR, Vision, and exploratory Combined leaderboards.
+---
 
-The backend is a FastAPI service with SQLite persistence, filesystem artifacts, invite-code submissions, and a single background worker that runs one `evo` job at a time.
+## Key Features
 
-## Development
+- **Automated Self-Service Submissions**: Direct trajectory uploads with instant format and client-side validation.
+- **Server-Side Ground Truth Evaluation**: Evaluates Absolute Trajectory Error (ATE RMSE) and Relative Pose Error (RPE RMSE) using the [`evo`](https://github.com/MichaelGrupp/evo) package against withheld server-side ground truth.
+- **Dual-Layer Rate Limiting & Quotas**: Built-in IP sliding-window rate limiting and email category quotas to prevent spam and queue flooding while permitting team collaboration.
+- **Auto-Publishing & Email Alerts**: Automatically publishes evaluated results to the public leaderboard and dispatches email notifications to `rpolvara@lincoln.ac.uk`.
+- **Modern Glassmorphic Web Interface**: Responsive Dark/Light theme, interactive visual analytics charts (`Recharts`), live evaluation auto-polling (`TanStack Query`), and drag-and-drop dropzone.
 
-Frontend:
+---
 
+## Architecture Overview
+
+```
+BLT SLAM Benchmark Project Structure
+├── backend/                  # FastAPI Application & Background Evaluation Engine
+│   ├── app.py                # REST API Endpoints & Rate Limiting Logic
+│   ├── config.py             # Server Settings & Environment Variable Loader
+│   ├── email_service.py      # Outbound SMTP Admin Email Notifications
+│   ├── evaluator.py          # evo CLI Benchmarking Wrapper
+│   ├── store.py              # SQLite Persistence Engine & Audit Logging
+│   └── worker.py             # Async Evaluation Queue Worker
+├── src/                      # React 19 + TypeScript Frontend Application
+│   ├── components/           # UI Components (Leaderboard, SubmissionPanel, AdminPanel)
+│   ├── context/              # Dark/Light Theme Engine Context
+│   ├── lib/                  # API Clients & Submission Validation
+│   ├── pages/                # HomePage, SubmissionPage Views
+│   └── styles.css            # Custom CSS Tokens & Glassmorphism Utilities
+├── docs/                     # System Documentation
+│   ├── SELF_HOSTING.md       # Self-Hosting, Docker & Production Deployment
+│   ├── ADMINISTRATION.md     # Admin Guide, Rate Limit Overrides & Moderation
+│   └── API_REFERENCE.md      # REST API Specification & Data Formats
+└── docker-compose.yml        # Production Docker Container Orchestration
+```
+
+---
+
+## Quick Start (Local Development)
+
+### Prerequisites
+- Node.js 20+
+- Python 3.10+
+- `evo` package installed (`pip install evo`)
+
+### 1. Frontend Development Server
 ```bash
 npm install
 npm run dev
 ```
+*(Runs Vite dev server on `http://localhost:5173` with API proxying to port `8017`)*.
 
-Backend:
-
+### 2. Backend FastAPI Service
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/uvicorn backend.main:app --reload
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+uvicorn backend.main:app --reload --port 8017
 ```
 
-For the complete upload flow, run the FastAPI service because it serves `/api/*` and the built frontend together in production.
+---
 
-## Devcontainer
+## Production Deployment & Self-Hosting
 
-For laptop development with VS Code Dev Containers or compatible tooling, reopen the repo in the included devcontainer. It installs Python 3.12, Node 22, `evo`, backend test dependencies, frontend dependencies, and creates ignored local runtime folders.
-
-The devcontainer automatically starts both development servers when the container starts:
-
-- Vite frontend on port `5173`
-- FastAPI backend on port `8017`
-
-Vite proxies `/api/*` to the backend on `8017`, so use the frontend URL for normal development.
-
-Logs are written to `var/devcontainer/frontend.log` and `var/devcontainer/backend.log`.
-
-To force-restart both servers manually after changing dev server configuration, run:
+The platform is fully containerized for production deployment.
 
 ```bash
-bash .devcontainer/start-dev.sh restart
-```
+# 1. Clone repository & configure environment
+cp .env.example .env
 
-For a production-like local run:
-
-```bash
-npm run build
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-The devcontainer forwards ports `5173`, `8017`, and `8000`. Optional local ground truth should be placed at the ignored path `groundtruth/official_tum.txt`.
-
-## Configuration
-
-Create `.env` from `.env.example` for Docker deployment. Important values:
-
-- `BLT_ADMIN_TOKEN`: long random token used by `/admin`.
-- `BLT_PUBLIC_BASE_URL`: reserved zrok public URL, used when returning private status links.
-- `BLT_GROUND_TRUTH_PATH`: read-only TUM ground-truth file path inside the container.
-- `BLT_MAX_UPLOAD_BYTES`: default `26214400` bytes.
-- `BLT_EVO_TIMEOUT_SECONDS`: default `600`.
-
-Ground truth should live outside public/static paths. With the provided Compose file, put it at:
-
-```bash
+# 2. Place private ground truth at
 groundtruth/official_tum.txt
-```
 
-## Raspberry Pi Deployment
-
-Assumptions: Raspberry Pi OS 64-bit, Docker, and Docker Compose are available.
-
-1. Copy `.env.example` to `.env` and set `BLT_ADMIN_TOKEN` plus `BLT_PUBLIC_BASE_URL`.
-2. Place private ground truth at `groundtruth/official_tum.txt`.
-3. Build and start the app:
-
-```bash
+# 3. Launch with Docker Compose
 docker compose up --build -d
 ```
 
-4. Open `http://<pi-host>:8000/admin`, enter the admin token, and create invite codes.
-5. Create a reserved zrok share that points to `http://127.0.0.1:8000`.
-6. Share the zrok URL and per-team invite codes with beta participants.
+For complete hosting instructions, Nginx reverse proxy configuration, and TLS setup, see the **[Self-Hosting Guide](docs/SELF_HOSTING.md)**.
 
-## Backups
+---
 
-Run local snapshots on the Pi:
+## Documentation Index
 
-```bash
-scripts/backup.sh
-```
+- 📘 **[Self-Hosting Guide](docs/SELF_HOSTING.md)**: Deployment steps, Docker configuration, Nginx setup, backups, and environment variables reference.
+- 🔑 **[Administration Guide](docs/ADMINISTRATION.md)**: Admin token authentication, overriding rate limits, email quota management, and moderation controls.
+- 📡 **[API Reference](docs/API_REFERENCE.md)**: Complete REST API endpoint documentation and TUM trajectory format specifications.
 
-By default this writes timestamped backups under `backups/`. It copies SQLite with the SQLite backup API and archives uploaded/result artifacts from `var/data`.
+---
 
-For cron, use an absolute path, for example:
+## Testing & Verification
 
-```cron
-15 2 * * * cd /home/pi/blt_benchmark && /home/pi/blt_benchmark/scripts/backup.sh
-```
-
-## Verification
-
-Frontend:
+Run the test suite across backend and frontend services:
 
 ```bash
+# Frontend Unit Tests (Vitest)
 npm test -- --run
+
+# Frontend Production Build Check
 npm run build
-```
 
-Backend:
-
-```bash
+# Backend Test Suite (Pytest)
 .venv/bin/pytest backend/tests
 ```
 
-Docker smoke check:
+---
 
-```bash
-docker compose up --build
-curl http://127.0.0.1:8000/api/leaderboards
-```
+## License
+
+Distributed under the [MIT License](LICENSE).

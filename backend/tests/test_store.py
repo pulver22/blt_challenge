@@ -3,13 +3,11 @@ from pathlib import Path
 from backend.store import Store
 
 
-def test_attempt_accounting_counts_evo_runs_only(tmp_path: Path):
-    store = Store(tmp_path / "app.db")
+def test_attempt_accounting_by_email(tmp_path: Path):
+    store = Store(tmp_path / "app.db", attempt_limit=5)
     store.initialize()
-    invite = store.create_invite(team_label="Lincoln Robotics", code="BLT-TEST")
 
     validation_failure = store.create_submission(
-        invite_code_id=invite["id"],
         team="Lincoln Robotics",
         contact_email="team@example.org",
         method="Bad Format",
@@ -23,7 +21,6 @@ def test_attempt_accounting_counts_evo_runs_only(tmp_path: Path):
     assert validation_failure["attempt_number"] is None
 
     queued = store.create_submission(
-        invite_code_id=invite["id"],
         team="Lincoln Robotics",
         contact_email="team@example.org",
         method="Real Attempt",
@@ -36,16 +33,14 @@ def test_attempt_accounting_counts_evo_runs_only(tmp_path: Path):
     )
 
     assert queued["attempt_number"] == 1
-    assert store.remaining_attempts(invite["id"], "lidar") == 4
+    assert store.remaining_attempts_by_email("team@example.org", "lidar") == 4
 
 
 def test_public_leaderboard_returns_best_published_result_per_team_category(tmp_path: Path):
     store = Store(tmp_path / "app.db")
     store.initialize()
-    invite = store.create_invite(team_label="RowMapper", code="BLT-ROW")
 
     first = store.create_submission(
-        invite_code_id=invite["id"],
         team="RowMapper",
         contact_email="team@example.org",
         method="ICP v1",
@@ -54,10 +49,9 @@ def test_public_leaderboard_returns_best_published_result_per_team_category(tmp_
         link="",
         notes="",
         upload_path="/tmp/one.txt",
-        status="pending_review",
+        status="queued",
     )
     second = store.create_submission(
-        invite_code_id=invite["id"],
         team="RowMapper",
         contact_email="team@example.org",
         method="ICP v2",
@@ -66,7 +60,7 @@ def test_public_leaderboard_returns_best_published_result_per_team_category(tmp_
         link="",
         notes="",
         upload_path="/tmp/two.txt",
-        status="pending_review",
+        status="queued",
     )
     store.record_result(first["id"], ate_rmse=0.4, rpe_rmse=0.08, alignment="se3", artifact_path="/tmp/a")
     store.record_result(second["id"], ate_rmse=0.2, rpe_rmse=0.06, alignment="se3", artifact_path="/tmp/b")

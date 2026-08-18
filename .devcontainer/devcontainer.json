@@ -30,6 +30,7 @@
   },
   "postCreateCommand": "python -m pip install --user -r requirements-dev.txt && npm ci && mkdir -p var/data groundtruth",
   "postStartCommand": "bash .devcontainer/start-dev.sh",
+  "waitFor": "postCreateCommand",
   "customizations": {
     "vscode": {
       "extensions": [

@@ -7,17 +7,18 @@ describe('submission helpers', () => {
       valid: true,
       message: 'TUM text trajectory ready for live evo evaluation.',
     });
+    expect(validateTrajectoryUpload({ name: 'LIO-SAM_ktima_april.tum.tum' }).valid).toBe(true);
   });
 
   it('rejects ROS bags, KITTI, and unsupported formats', () => {
     expect(validateTrajectoryUpload({ name: 'odometry.bag' })).toEqual({
       valid: false,
-      message: 'Upload a TUM .txt trajectory file.',
+      message: 'Upload a TUM text trajectory file.',
     });
 
     expect(validateTrajectoryUpload({ name: 'poses.kitti' })).toEqual({
       valid: false,
-      message: 'Upload a TUM .txt trajectory file.',
+      message: 'Upload a TUM text trajectory file.',
     });
   });
 

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+SUPPORTED_TUM_SUFFIXES = (".txt", ".tum", ".tum.tum")
+
 
 class TrajectoryValidationError(ValueError):
     pass
@@ -11,6 +13,13 @@ class TumSummary:
     rows: int
     first_timestamp: float
     last_timestamp: float
+
+
+def is_supported_tum_filename(filename: str | None) -> bool:
+    if not filename:
+        return False
+    normalized = filename.lower()
+    return any(normalized.endswith(suffix) for suffix in SUPPORTED_TUM_SUFFIXES)
 
 
 def validate_tum_file(path: Path) -> TumSummary:
