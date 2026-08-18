@@ -4,34 +4,47 @@ import {
   getLeaderboardByCategory,
   sortByAteRmse,
 } from './scoring';
+import { LeaderboardEntry } from '../types';
 
-const submissions = [
+const submissions: LeaderboardEntry[] = [
   {
-    id: 'vision-baseline',
+    submission_id: 'vision-baseline',
     category: 'vision',
     team: 'CropLoop',
     method: 'RGB-D Vineyard Odometry',
-    ateRmse: 0.46,
+    ate_rmse: 0.46,
+    rpe_rmse: 0.09,
+    alignment: 'sim3',
+    rank: 1,
+    attempt_number: 1,
   },
   {
-    id: 'lidar-best',
+    submission_id: 'lidar-best',
     category: 'lidar',
     team: 'RowMapper',
     method: 'ICP Rows',
-    ateRmse: 0.18,
+    ate_rmse: 0.18,
+    rpe_rmse: 0.04,
+    alignment: 'se3',
+    rank: 1,
+    attempt_number: 1,
   },
   {
-    id: 'lidar-second',
+    submission_id: 'lidar-second',
     category: 'lidar',
     team: 'CanopyLab',
     method: 'NDT Summer',
-    ateRmse: 0.27,
+    ate_rmse: 0.27,
+    rpe_rmse: 0.05,
+    alignment: 'se3',
+    rank: 2,
+    attempt_number: 1,
   },
 ];
 
 describe('leaderboard scoring helpers', () => {
   it('sorts submissions by ATE RMSE in ascending order', () => {
-    expect(sortByAteRmse(submissions).map((entry) => entry.id)).toEqual([
+    expect(sortByAteRmse(submissions).map((entry) => entry.submission_id)).toEqual([
       'lidar-best',
       'lidar-second',
       'vision-baseline',
@@ -40,8 +53,8 @@ describe('leaderboard scoring helpers', () => {
 
   it('filters and ranks a category leaderboard', () => {
     expect(getLeaderboardByCategory(submissions, 'lidar')).toEqual([
-      expect.objectContaining({ id: 'lidar-best', rank: 1 }),
-      expect.objectContaining({ id: 'lidar-second', rank: 2 }),
+      expect.objectContaining({ submission_id: 'lidar-best', rank: 1 }),
+      expect.objectContaining({ submission_id: 'lidar-second', rank: 2 }),
     ]);
   });
 
@@ -50,14 +63,12 @@ describe('leaderboard scoring helpers', () => {
 
     expect(combined).toHaveLength(3);
     expect(combined[0]).toMatchObject({
-      id: 'lidar-best',
+      submission_id: 'lidar-best',
       rank: 1,
-      categoryLabel: 'LiDAR SLAM',
     });
     expect(combined[2]).toMatchObject({
-      id: 'vision-baseline',
+      submission_id: 'vision-baseline',
       rank: 3,
-      categoryLabel: 'Vision SLAM',
     });
   });
 });

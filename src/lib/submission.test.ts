@@ -3,7 +3,7 @@ import { evaluationSteps, validateTrajectoryUpload } from './submission';
 
 describe('submission helpers', () => {
   it('accepts TUM text trajectory uploads', () => {
-    expect(validateTrajectoryUpload({ name: 'summer_run_tum.txt', format: 'tum' })).toEqual({
+    expect(validateTrajectoryUpload({ name: 'summer_run_tum.txt' })).toEqual({
       valid: true,
       message: 'TUM text trajectory ready for live evo evaluation.',
     });
@@ -22,7 +22,7 @@ describe('submission helpers', () => {
     });
   });
 
-  it('describes the mocked evo evaluation progression', () => {
+  it('describes the evo evaluation progression', () => {
     expect(evaluationSteps.map((step) => step.label)).toEqual([
       'Upload received',
       'Validating text trajectory',

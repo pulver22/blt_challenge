@@ -11,7 +11,7 @@ describe('api client', () => {
       new Response('<!doctype html>', {
         status: 200,
         headers: { 'Content-Type': 'text/html' },
-      }),
+      })
     );
 
     await expect(fetchLeaderboards()).rejects.toThrow('Expected JSON response');
