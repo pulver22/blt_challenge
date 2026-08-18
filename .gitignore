@@ -1,5 +1,14 @@
 node_modules/
 dist/
+.venv/
+var/
+backups/
+groundtruth/
+__pycache__/
+*.py[cod]
 .DS_Store
 .env
 .env.local
+.superpowers/
+.omx/
+*.log
