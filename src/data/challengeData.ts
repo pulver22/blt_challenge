@@ -3,6 +3,9 @@ import { CategoryId, ChallengeMeta, LeaderboardEntry } from '../types';
 export const challenge: ChallengeMeta = {
   name: 'BLT SLAM Challenge',
   datasetUrl: 'https://lcas.lincoln.ac.uk/wp/research/data-sets-software/blt/',
+  publicationUrl: 'https://onlinelibrary.wiley.com/doi/pdf/10.1002/rob.22228',
+  publicationTitle: 'BACCHUS long-term dataset: Agricultural mobile robotics in vineyard environments',
+  paperCitation: 'Polvara et al., Journal of Field Robotics (JFR), Wiley, 2023',
   evoUrl: 'https://github.com/MichaelGrupp/evo',
   officialRun: {
     id: 'blt-summer-test',

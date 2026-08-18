@@ -80,6 +80,9 @@ export interface AdminSubmissionItem extends SubmissionStatusDetail {
 export interface ChallengeMeta {
   name: string;
   datasetUrl: string;
+  publicationUrl: string;
+  publicationTitle: string;
+  paperCitation: string;
   evoUrl: string;
   officialRun: {
     id: string;
